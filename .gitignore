@@ -69,8 +69,22 @@ payload.json
 *.cambricon
 *.ixmodel
 
-# 权重文件（可选，如果不想提交权重文件）
-# weights/
+# 权重文件（不提交大文件）
+weights/
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.pdmodel
+*.pdparams
+*.h5
+*.pb
+*.onnx
+*.torchscript
+*.engine
+*.om
+*.cambricon
+*.ixmodel
 
 # 空目录占位文件
 storage/logs/.gitkeep
