@@ -61,15 +61,15 @@ if "%choice%"=="2" (
 )
 if "%choice%"=="3" (
     echo [测试3] 自动量化（LSTM专用：INT8动态，仅Linear层）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": {\"quantize\": {\"enable\": true, \"auto\": true}}}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": {\"quantize\": \"auto\"}}"
 )
 if "%choice%"=="4" (
     echo [测试4] INT8动态量化（显式指定）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": \"int8_dynamic\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": {\"quantize\": \"int8_dynamic\"}}"
 )
 if "%choice%"=="5" (
     echo [测试5] FP16量化（通用方法）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": \"fp16\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": {\"quantize\": \"fp16\"}}"
 )
 if "%choice%"=="6" (
     echo [测试6] 自动剪枝（LSTM专用：非结构化，仅Linear层）

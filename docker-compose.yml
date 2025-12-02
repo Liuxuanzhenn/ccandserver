@@ -1,0 +1,24 @@
+name: model-convert-deploy
+
+services:
+  model-convert-deploy:
+    # 强制指定为 AMD64 (x86_64) 架构，适用于 Intel/AMD 服务器
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: model-convert-deploy
+    ports:
+      - "5000:5000"
+    volumes:
+      # 挂载数据目录，方便持久化存储
+      - ./artifacts:/app/artifacts
+      - ./storage:/app/storage
+      - ./logs:/app/logs
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=5000
+      - APP_DEBUG=False
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+

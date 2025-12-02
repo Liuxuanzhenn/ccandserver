@@ -2,6 +2,7 @@
 
 统一错误码和错误处理机制
 """
+from collections import OrderedDict
 from enum import IntEnum
 from typing import Dict, Any, Optional
 
@@ -84,19 +85,21 @@ class APIError(Exception):
 
 
 def create_error_response(code: int, message: Optional[str] = None, data: Optional[Any] = None) -> Dict[str, Any]:
-    """创建错误响应"""
-    return {
-        "code": code,
-        "message": ErrorMessage.get_message(code, message),
-        "data": data
-    }
+    """创建错误响应（保持字段顺序）"""
+    payload = OrderedDict()
+    payload["code"] = code
+    payload["message"] = ErrorMessage.get_message(code, message)
+    if data is not None:
+        payload["data"] = data
+    return payload
 
 
 def create_success_response(data: Any = None, message: str = "success") -> Dict[str, Any]:
-    """创建成功响应"""
-    return {
-        "code": ErrorCode.SUCCESS,
-        "message": message,
-        "data": data
-    }
+    """创建成功响应，message 紧随 code"""
+    payload = OrderedDict()
+    payload["code"] = ErrorCode.SUCCESS
+    payload["message"] = message
+    if data is not None:
+        payload["data"] = data
+    return payload
 

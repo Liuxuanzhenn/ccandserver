@@ -46,31 +46,31 @@ if "%choice%"=="2" (
 )
 if "%choice%"=="3" (
     echo [测试3] FP16量化
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": \"fp16\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": {\"quantize\": \"fp16\"}}"
 )
 if "%choice%"=="4" (
     echo [测试4] INT8量化（自动选择：有校准数据用静态，否则用动态）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"extra_dir\": \"%BASE_DIR%/extra\", \"method\": \"int8\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"extra_dir\": \"%BASE_DIR%/extra\", \"method\": {\"quantize\": \"int8\"}}"
 )
 if "%choice%"=="5" (
     echo [测试5] INT8动态量化（旧API，向后兼容）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": \"int8_dynamic\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": {\"quantize\": \"int8_dynamic\"}}"
 )
 if "%choice%"=="6" (
     echo [测试6] INT8静态量化（需要校准数据，旧API，向后兼容）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"extra_dir\": \"%BASE_DIR%/extra\", \"method\": \"int8_static\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"extra_dir\": \"%BASE_DIR%/extra\", \"method\": {\"quantize\": \"int8_static\"}}"
 )
 if "%choice%"=="7" (
     echo [测试7] 自动量化（auto）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"extra_dir\": \"%BASE_DIR%/extra\", \"method\": \"auto\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"extra_dir\": \"%BASE_DIR%/extra\", \"method\": {\"quantize\": \"auto\"}}"
 )
 if "%choice%"=="8" (
     echo [测试8] 结构化剪枝（30%%稀疏度）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": \"structured_pruning\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": {\"prune\": \"structured_pruning\"}}"
 )
 if "%choice%"=="9" (
     echo [测试9] 自动剪枝（auto_pruning）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": \"auto_pruning\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"method\": {\"prune\": \"auto\"}}"
 )
 if "%choice%"=="10" (
     echo [测试10] 非结构化剪枝（40%%稀疏度）
@@ -90,7 +90,7 @@ if "%choice%"=="13" (
 )
 if "%choice%"=="14" (
     echo [测试14] 自动蒸馏（auto_distillation）
-    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"extra_dir\": \"%BASE_DIR%/extra\", \"method\": \"auto_distillation\"}"
+    curl -X POST %API_URL%/execute -H "Content-Type: application/json" -d "{\"model_dir\": \"%BASE_DIR%/raw\", \"result_dir\": \"%BASE_DIR%/optimized\", \"extra_dir\": \"%BASE_DIR%/extra\", \"method\": {\"distill\": \"auto\"}}"
 )
 if "%choice%"=="15" (
     echo [测试15] 列出支持的格式

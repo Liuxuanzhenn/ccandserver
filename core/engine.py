@@ -5,7 +5,7 @@
 import os
 import uuid
 import time
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from utils.file import ensure_dir as _ensure_dir
 from utils.data import compat_preprocess
@@ -19,8 +19,7 @@ from evaluators.accuracy_stub import compute_accuracy_stub as acc_eval
 logger = get_logger("engine")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT_ROOT = os.path.dirname(BASE_DIR)
-ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "artifacts")
+ARTIFACTS_DIR = os.path.join(BASE_DIR, "artifacts")
 
 
 def execute_optimize(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -67,7 +66,8 @@ def execute_optimize(data: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Failed to get adapter: {e}")
         return {
             "job_id": f"j_{model_id}_{version_id}",
-            "artifacts": [],
+            "operations": [],
+            "outputs": [],
             "metrics": {},
             "error": f"Failed to get adapter: {str(e)}"
         }
@@ -75,7 +75,8 @@ def execute_optimize(data: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"No adapter found for framework={framework}, family={family}")
         return {
             "job_id": f"j_{model_id}_{version_id}",
-            "artifacts": [],
+            "operations": [],
+            "outputs": [],
             "metrics": {},
             "error": f"no adapter for framework={framework}, family={family}"
         }
@@ -92,7 +93,8 @@ def execute_optimize(data: Dict[str, Any]) -> Dict[str, Any]:
                 logger.error("Model failed to load - adapter.model is None")
                 return {
                     "job_id": f"j_{model_id}_{version_id}",
-                    "artifacts": [],
+                    "operations": [],
+                    "outputs": [],
                     "metrics": {},
                     "error": "Model failed to load"
                 }
@@ -105,43 +107,49 @@ def execute_optimize(data: Dict[str, Any]) -> Dict[str, Any]:
             logger.error(f"Failed to load model: {e}")
             return {
                 "job_id": f"j_{model_id}_{version_id}",
-                "artifacts": [],
+                "operations": [],
+                "outputs": [],
                 "metrics": {},
                 "error": f"Failed to load model: {str(e)}"
             }
 
-        artifacts = []
+        artifacts: List[str] = []
         strategy = data.get("strategy", {})
         job_id = f"j_{model_id}_{version_id}"
+        executed_ops: List[Dict[str, Any]] = []
         
-        def _apply_operation(op_name: str, cfg: Dict[str, Any], apply_func) -> bool:
-            """统一处理优化操作"""
+        def _apply_operation(op_key: str, cfg: Dict[str, Any], apply_func, error_label: str) -> bool:
+            """统一处理优化操作，只记录真正执行的步骤"""
             if not (cfg and cfg.get("enable")):
                 return True
+            entry: Dict[str, Any] = {"operation": op_key}
+            executed_ops.append(entry)
             try:
-                logger.debug(f"Applying {op_name}")
+                logger.debug(f"Applying {op_key}")
                 result = apply_func(cfg)
                 if result and "outputs" in result:
                     artifacts.extend(result["outputs"])
+                entry["status"] = "success"
                 return True
             except Exception as e:
-                logger.error(f"{op_name.capitalize()} failed: {e}", exc_info=True)
+                entry["status"] = "failed"
+                logger.error(f"{error_label} failed: {e}", exc_info=True)
                 return False
         
         # 执行优化操作（顺序：剪枝→量化→蒸馏），如果失败则返回错误（资源会在finally中清理）
         try:
             # 1. 剪枝（先执行，在FP32精度下进行）
-            if not _apply_operation("pruning", strategy.get("prune", {}), adapter.apply_prune):
-                return {"job_id": job_id, "artifacts": [], "metrics": {}, "error": "Pruning failed"}
+            if not _apply_operation("prune", strategy.get("prune", {}), adapter.apply_prune, "Pruning"):
+                return {"job_id": job_id, "operations": executed_ops, "outputs": [], "metrics": {}, "error": "Pruning failed"}
             # 2. 量化（剪枝后再量化，避免量化后再剪枝导致精度类型转换）
-            if not _apply_operation("quantization", strategy.get("quantize", {}), adapter.apply_quant):
-                return {"job_id": job_id, "artifacts": [], "metrics": {}, "error": "Quantization failed"}
+            if not _apply_operation("quantize", strategy.get("quantize", {}), adapter.apply_quant, "Quantization"):
+                return {"job_id": job_id, "operations": executed_ops, "outputs": [], "metrics": {}, "error": "Quantization failed"}
             # 3. 蒸馏（最后执行）
-            if not _apply_operation("distillation", strategy.get("distill", {}), adapter.apply_distill):
-                return {"job_id": job_id, "artifacts": [], "metrics": {}, "error": "Distillation failed"}
+            if not _apply_operation("distill", strategy.get("distill", {}), adapter.apply_distill, "Distillation"):
+                return {"job_id": job_id, "operations": executed_ops, "outputs": [], "metrics": {}, "error": "Distillation failed"}
         except Exception as e:
             logger.error(f"Unexpected error during optimization: {e}", exc_info=True)
-            return {"job_id": job_id, "artifacts": [], "metrics": {}, "error": f"Optimization failed: {str(e)}"}
+            return {"job_id": job_id, "operations": executed_ops, "outputs": [], "metrics": {}, "error": f"Optimization failed: {str(e)}"}
 
         export_cfg = strategy.get("export", {})
         formats = export_cfg.get("formats") or []
@@ -161,16 +169,18 @@ def execute_optimize(data: Dict[str, Any]) -> Dict[str, Any]:
                 logger.error(f"Export failed: {e}")
                 return {
                     "job_id": f"j_{model_id}_{version_id}",
-                    "artifacts": [],
+                    "operations": executed_ops,
+                    "outputs": [],
                     "metrics": {},
                     "error": f"Export failed: {str(e)}"
                 }
 
+        metrics_path: Optional[str] = None
         try:
             logger.debug("Evaluating model metrics")
             metrics = adapter.evaluate(artifacts=artifacts)
             metrics_path = adapter.write_metrics(metrics)
-            if metrics_path not in artifacts:
+            if metrics_path and metrics_path not in artifacts:
                 artifacts.append(metrics_path)
         except Exception as e:
             logger.warning(f"Evaluation failed: {e}")
@@ -190,14 +200,66 @@ def execute_optimize(data: Dict[str, Any]) -> Dict[str, Any]:
                 acc = acc_eval(artifacts_dir, family_hint=str(family))
                 if isinstance(acc, dict):
                     metrics.update(acc)
-                    adapter.write_metrics(metrics)
             except Exception as e:
                 logger.warning(f"Accuracy evaluation failed: {e}")
+
+        for unused_key in ("acc_top1", "acc_top5", "map"):
+            metrics.pop(unused_key, None)
+
+        size_before = metrics.get("size_before_mb")
+        size_after = metrics.get("size_after_mb")
+        ratio = None
+        if isinstance(size_before, (int, float)) and size_before and isinstance(size_after, (int, float)):
+            ratio = round(size_after / size_before, 4)
+        metrics = {
+            "size_before_mb": size_before,
+            "size_after_mb": size_after,
+            "compression_ratio": ratio,
+            "latency_ms_cpu": metrics.get("latency_ms_cpu")
+        }
+
+        if metrics_path:
+            adapter.write_metrics(metrics)
+
+        def _summarize_artifacts(paths: List[str]) -> List[Dict[str, Any]]:
+            """生成简明产物列表，方便前端展示"""
+            summary: List[Dict[str, Any]] = []
+            seen = set()
+            for path in paths:
+                if not path:
+                    continue
+                rel_path = path
+                try:
+                    if os.path.exists(path):
+                        rel_path = os.path.relpath(path, artifacts_dir)
+                except ValueError:
+                    rel_path = path
+                rel_path = rel_path.replace("\\", "/")
+                name = os.path.basename(path).lower()
+                if name.endswith(".json"):
+                    art_type = "metrics"
+                elif "quant" in name:
+                    art_type = "quantized_model"
+                elif "distill" in name:
+                    art_type = "distilled_model"
+                elif "prune" in name:
+                    art_type = "pruned_model"
+                else:
+                    art_type = "artifact"
+                if art_type == "metrics":
+                    continue
+                key = (art_type, rel_path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                summary.append({"type": art_type, "path": rel_path})
+            return summary
 
         logger.debug(f"Optimization completed for model_id={model_id}")
         return {
             "job_id": f"j_{model_id}_{version_id}",
-            "artifacts": artifacts,
+            "operations": executed_ops,
+            "outputs": _summarize_artifacts(artifacts),
             "metrics": metrics,
         }
     finally:
@@ -240,14 +302,17 @@ def execute_compile(data: Dict[str, Any]) -> Dict[str, Any]:
         
         _ensure_dir(compiler.output_dir)
         result = compiler.compile(artifact_path, options)
-        out_paths = [result.get("output_path", "")]
+        
+        output_path = result.get("output_path", "")
+        rel_path = os.path.relpath(output_path, compiled_dir) if output_path else ""
+        
+        return {
+            "job_id": f"j_compile_{int(time.time())}",
+            "operations": [{"operation": "compile", "status": "success", "target": target}],
+            "outputs": [{"type": "compiled_model", "path": rel_path.replace("\\", "/")}],
+            "metrics": {}
+        }
         
     except Exception as e:
         logger.error(f"Compilation failed for target {target}: {e}", exc_info=True)
         return {"error": f"Compilation failed: {str(e)}"}
-
-    return {
-        "compiled": out_paths,
-        "message": "Compilation completed successfully"
-    }
-

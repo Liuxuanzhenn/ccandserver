@@ -34,7 +34,7 @@ def detect_framework_from_files(model_dir: str) -> str:
             ext = os.path.splitext(f)[1].lower()
             extensions.add(ext)
     
-    # 只识别需要的格式：pytorch, tensorflow, paddlepaddle, onnx, safetensors
+    # 识别格式：pytorch, tensorflow, paddlepaddle, onnx, sklearn, safetensors
     if any(ext in ['.pt', '.pth', '.safetensors'] for ext in extensions):
         return "pytorch"
     if any(ext in ['.pb', '.h5', '.ckpt'] for ext in extensions):
@@ -43,6 +43,8 @@ def detect_framework_from_files(model_dir: str) -> str:
         return "paddlepaddle"
     if any(ext in ['.onnx'] for ext in extensions):
         return "onnx"
+    if any(ext in ['.pkl', '.joblib'] for ext in extensions):
+        return "sklearn"
     
     return "pytorch"
 
@@ -98,6 +100,11 @@ def detect_original_format(model_dir: str, framework: str) -> Optional[str]:
         # PaddlePaddle 格式
         elif ext in ['.pdmodel', '.pdparams']:
             return "paddle_infer"
+        # sklearn 格式
+        elif ext == '.pkl':
+            return "pkl"
+        elif ext == '.joblib':
+            return "joblib"
     
     # 如果没找到明确的格式，根据 framework 推断默认格式
     if framework == "pytorch":
@@ -108,6 +115,8 @@ def detect_original_format(model_dir: str, framework: str) -> Optional[str]:
         return "pb"
     elif framework == "paddlepaddle":
         return "paddle_infer"
+    elif framework == "sklearn":
+        return "pkl"  # sklearn 默认格式
     
     return None
 

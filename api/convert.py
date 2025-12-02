@@ -1,9 +1,7 @@
-"""格式转换API接口
-
-提供模型格式转换功能，支持不同格式之间的转换
-"""
+"""格式转换API接口"""
 import logging
 import os
+import time
 from typing import Dict, Any, List
 from flask import Blueprint, request, jsonify
 
@@ -15,6 +13,12 @@ from adapters.registry import get_adapter
 logger = logging.getLogger(__name__)
 
 convert_api_bp = Blueprint('convert_api', __name__)
+
+# 格式名称映射
+_FORMAT_MAP = {
+    "onnx": "onnx", "torchscript": "torchscript", "pt": "pt",
+    "pth": "pt", "pb": "pb", "savedmodel": "savedmodel"
+}
 
 
 @convert_api_bp.post("/convert-format")
@@ -116,30 +120,25 @@ def convert_format():
                 str(e)
             )), 400
         
-        # 检测模型信息（底层已优化为优先文件名检测）
-        print(f"[DEBUG] convert-format called: model_dir={model_dir}, model_file={model_file}")
+        # 检测模型信息
         detector = ModelDetector()
         detection = detector.detect_from_dir(model_dir)
         framework = detection["framework"]
         family = detection["family"]
         original_format = detection.get("original_format")
 
-        # 如果定位到 generic 且用户指定了 model_file，尝试根据同级 raw 目录重新检测
+        # generic时尝试从同级raw目录重新检测
         if model_file and family == "generic":
-            parent_dir = os.path.dirname(model_dir.rstrip("/\\"))
-            candidate_raw_dir = os.path.join(parent_dir, "raw")
-            if os.path.isdir(candidate_raw_dir):
+            raw_dir = os.path.join(os.path.dirname(model_dir.rstrip("/\\")), "raw")
+            if os.path.isdir(raw_dir):
                 try:
-                    raw_detection = detector.detect_from_dir(candidate_raw_dir)
-                    if raw_detection.get("family") and raw_detection.get("family") != "generic":
-                        print(f"[DEBUG] Raw dir detection override: {raw_detection['family']}")
-                        framework = raw_detection.get("framework", framework)
-                        family = raw_detection["family"]
-                        original_format = raw_detection.get("original_format", original_format)
-                except Exception as raw_detect_err:
-                    print(f"[DEBUG] Raw detection failed: {raw_detect_err}")
-        print(f"[DEBUG] Detection result: framework={framework}, family={family}")
-        logger.info(f"[convert-format] Detection result - framework={framework}, family={family}, model_dir={model_dir}, model_file={model_file}")
+                    raw_det = detector.detect_from_dir(raw_dir)
+                    if raw_det.get("family", "generic") != "generic":
+                        framework, family = raw_det.get("framework", framework), raw_det["family"]
+                        original_format = raw_det.get("original_format", original_format)
+                except Exception:
+                    pass
+        logger.info(f"[convert-format] framework={framework}, family={family}")
         
         if not framework or not family:
             return jsonify(create_error_response(
@@ -168,23 +167,13 @@ def convert_format():
         adapter = adapter_class(model_dir, result_dir, model_file=model_file)
         
         # 加载模型
-        print(f"[DEBUG] Starting to load model with adapter: {adapter_class.__name__}")
         try:
             adapter.load()
-            print(f"[DEBUG] Model loaded: {adapter.model is not None}")
             if adapter.model is None:
-                print(f"[DEBUG] Model is None, returning error")
-                return jsonify(create_error_response(
-                    ErrorCode.MODEL_LOAD_FAILED,
-                    "Failed to load model"
-                )), 400
+                return jsonify(create_error_response(ErrorCode.MODEL_LOAD_FAILED, "Failed to load model")), 400
         except Exception as e:
-            print(f"[DEBUG] Exception during load: {e}")
             logger.error(f"Model load failed: {e}", exc_info=True)
-            return jsonify(create_error_response(
-                ErrorCode.MODEL_LOAD_FAILED,
-                f"Model load failed: {str(e)}"
-            )), 400
+            return jsonify(create_error_response(ErrorCode.MODEL_LOAD_FAILED, f"Model load failed: {str(e)}")), 400
         
         # 执行格式转换
         try:
@@ -206,33 +195,16 @@ def convert_format():
                     )), 400
 
             # 标准化格式名称
-            normalized_formats = []
-            format_mapping = {
-                "onnx": "onnx",
-                "torchscript": "torchscript",
-                "pt": "pt",
-                "pth": "pt",
-                "pb": "pb",
-                "savedmodel": "savedmodel"
-            }
+            normalized_formats = list(dict.fromkeys(
+                _FORMAT_MAP.get(str(f).lower(), str(f).lower()) for f in target_formats
+            ))
             
-            for fmt in target_formats:
-                fmt_lower = str(fmt).lower()
-                normalized = format_mapping.get(fmt_lower, fmt_lower)
-                if normalized not in normalized_formats:
-                    normalized_formats.append(normalized)
-            
-            # 调用export方法
-            print(f"[DEBUG] Calling export with formats: {normalized_formats}")
+            # 执行导出
             try:
                 artifacts = adapter.export(normalized_formats, normalized_formats)
-                print(f"[DEBUG] Export returned {len(artifacts) if artifacts else 0} artifacts")
             except ValueError as e:
-                if "INT8量化模型" in str(e):
-                    return jsonify(create_error_response(
-                        ErrorCode.EXPORT_FAILED,
-                        str(e)
-                    )), 400
+                if "INT8" in str(e):
+                    return jsonify(create_error_response(ErrorCode.EXPORT_FAILED, str(e))), 400
                 raise
             if not artifacts:
                 return jsonify(create_error_response(
@@ -240,30 +212,34 @@ def convert_format():
                     f"Format conversion failed: no files generated for formats {target_formats}"
                 )), 400
             
-            # 组织返回数据
-            converted_formats = {}
-            for artifact_path in artifacts:
-                ext = os.path.splitext(artifact_path)[1].lower()
-                if ext == ".onnx":
-                    converted_formats["onnx"] = artifact_path
-                elif ext == ".pt" and "torchscript" in artifact_path.lower():
-                    converted_formats["torchscript"] = artifact_path
-                elif ext in [".pt", ".pth"]:
-                    converted_formats["pt"] = artifact_path
-                elif ext == ".pb":
-                    converted_formats["pb"] = artifact_path
-            
-            # 生成job_id（简单版本）
-            import time
+            # 构建统一格式的响应
             job_id = f"convert_{int(time.time())}"
+            
+            # 计算文件大小
+            size_before = size_after = None
+            try:
+                src_file = adapter._find_weight()
+                if src_file and os.path.exists(src_file):
+                    size_before = round(os.path.getsize(src_file) / (1024 * 1024), 4)
+                if artifacts:
+                    size_after = round(os.path.getsize(artifacts[0]) / (1024 * 1024), 4)
+            except Exception:
+                pass
+            
+            # 生成outputs列表
+            outputs = []
+            for path in artifacts:
+                rel_path = os.path.relpath(path, result_dir).replace("\\", "/")
+                ext = os.path.splitext(path)[1].lower()
+                out_type = "onnx_model" if ext == ".onnx" else "torchscript_model" if "torchscript" in path.lower() else "converted_model"
+                outputs.append({"type": out_type, "path": rel_path})
             
             return jsonify(create_success_response({
                 "job_id": job_id,
                 "result_dir": result_dir,
-                "artifacts": artifacts,
-                "converted_formats": converted_formats,
-                "source_format": original_format,
-                "target_formats": normalized_formats
+                "operations": [{"operation": "convert", "from": original_format, "to": normalized_formats, "status": "success"}],
+                "outputs": outputs,
+                "metrics": {"size_before_mb": size_before, "size_after_mb": size_after}
             }))
             
         except Exception as e:

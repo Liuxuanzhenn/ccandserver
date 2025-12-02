@@ -39,24 +39,17 @@ class DetectCapabilitiesResponse(BaseModel):
                 "data": {
                     "framework": "pytorch",
                     "family": "yolo",
-                    "supported_operations": ["fp16", "int8_dynamic", "structured_pruning"],
-                    "operation_requirements": {
-                        "fp16": {
-                            "required_files": [],
-                            "optional_files": []
-                        },
-                        "structured_pruning": {
-                            "required_files": [],
-                            "optional_files": ["val_data"],
-                            "configurable": {
-                                "target_sparsity": {
-                                    "type": "float",
-                                    "default": 0.3,
-                                    "min": 0.1,
-                                    "max": 0.7
-                                }
-                            }
-                        }
+                    "supported_operations": [
+                        "quantize_fp16",
+                        "quantize_int8_dynamic",
+                        "prune_structured"
+                    ],
+                    "methods": {
+                        "available": [
+                            "quantize_fp16",
+                            "quantize_int8_dynamic",
+                            "prune_structured"
+                        ]
                     }
                 }
             }
@@ -68,28 +61,34 @@ class ExecuteCompressionRequest(BaseModel):
     model_dir: str = Field(..., description="模型目录路径")
     result_dir: str = Field(..., description="结果目录路径")
     extra_dir: Optional[str] = Field(None, description="额外文件目录路径（可选）")
-    method: Union[str, Dict[str, Any]] = Field(..., description="压缩方法，可以是字符串或对象")
+    method: Union[str, List[str]] = Field(..., description="压缩方法（quantize_fp16 / [quantize_auto, prune_structured]）")
+    method_params: Optional[Dict[str, Dict[str, Any]]] = Field(
+        None, 
+        description="参数覆盖，如 {\"prune_structured\": {\"target_sparsity\": 0.5}}"
+    )
     export_formats: Optional[List[str]] = Field(None, description="导出格式列表（可选）")
     
     @validator("method")
     def validate_method(cls, v):
-        """验证method参数"""
-        if isinstance(v, str):
-            valid_methods = [
-                "fp16", "int8_dynamic", "int8_static", "int8", "qat",
-                "auto",
-                "structured_pruning", "unstructured_pruning", "auto_pruning",
-                "knowledge_distillation", "auto_distillation"
-            ]
-            if v not in valid_methods:
-                raise ValueError(f"Invalid method: {v}. Must be one of {valid_methods}")
-        elif isinstance(v, dict):
-            valid_keys = ["quantize", "prune", "distill", "export"]
-            for key in v.keys():
-                if key not in valid_keys:
-                    raise ValueError(f"Invalid key in method: {key}. Must be one of {valid_keys}")
-        else:
-            raise ValueError(f"method must be str or dict, got {type(v)}")
+        """验证method参数（扁平字符串模式）"""
+        valid_methods = {
+            "quantize_fp16",
+            "quantize_int8_dynamic",
+            "quantize_int8_static",
+            "quantize_int8",
+            "quantize_qat",
+            "quantize_auto",
+            "prune_structured",
+            "prune_unstructured",
+            "prune_auto",
+            "distill_auto"
+        }
+        to_check = [v] if isinstance(v, str) else list(v)
+        if not to_check:
+            raise ValueError("method cannot be empty")
+        for item in to_check:
+            if item not in valid_methods:
+                raise ValueError(f"Invalid method: {item}. Must be one of {sorted(valid_methods)}")
         return v
     
     class Config:
@@ -98,7 +97,11 @@ class ExecuteCompressionRequest(BaseModel):
                 "model_dir": "/nfs/.../model",
                 "result_dir": "/nfs/.../result",
                 "extra_dir": "/nfs/.../extra",
-                "method": "fp16",
+                "method": ["quantize_auto", "prune_structured", "distill_auto"],
+                "method_params": {
+                    "prune_structured": {"target_sparsity": 0.5},
+                    "distill_auto": {"temperature": 5.0, "alpha": 0.8, "epochs": 25}
+                },
                 "export_formats": ["pt", "onnx"]
             }
         }
@@ -118,7 +121,13 @@ class ExecuteCompressionResponse(BaseModel):
                 "data": {
                     "job_id": "j_xxx",
                     "result_dir": "/nfs/.../result",
-                    "artifacts": ["model_fp16.pt", "model_fp16.onnx"],
+                    "operations": [
+                        {"operation": "quantize", "status": "success"}
+                    ],
+                    "outputs": [
+                        {"type": "quantized_model", "path": "model_fp16.pt"},
+                        {"type": "onnx_model", "path": "model_fp16.onnx"}
+                    ],
                     "metrics": {
                         "size_before_mb": 6.2,
                         "size_after_mb": 3.1,

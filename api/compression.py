@@ -156,34 +156,14 @@ def detect_capabilities():
                 ErrorCode.INTERNAL_ERROR,
                 "Capability registry not available"
             )), 500
-        
-        supported_operations = registry.get_supported_operations(framework, family)
-        operation_requirements = registry.get_all_operation_requirements(framework, family)
-        
-        extra_dir = data.get("extra_dir")
-        available_files = {}
-        method_availability = {}
-        
-        if extra_dir:
-            try:
-                extra_dir = PathManager.validate_extra_dir(extra_dir, create_if_not_exists=False)
-                if extra_dir:
-                    extra_manager = ExtraFilesManager(extra_dir)
-                    available_files = extra_manager.list_available_files()
-                    method_availability = _check_method_availability(
-                        operation_requirements, extra_manager
-                    )
-            except ValueError:
-                pass
-        
+
+        # 使用简化版的方法信息
+        simplified_methods = registry.get_simplified_methods(framework, family)
+
         return jsonify(create_success_response({
             "framework": framework,
             "family": family,
-            "original_format": original_format,
-            "supported_operations": supported_operations,
-            "operation_requirements": operation_requirements,
-            "available_files": available_files,
-            "method_availability": method_availability
+            "methods": simplified_methods
         }))
         
     except APIError as e:
@@ -325,10 +305,12 @@ def execute_compression():
         
         mapper = MethodMapper()
         export_formats = data.get("export_formats")
+        method_params = data.get("method_params")
         strategy = mapper.convert_to_strategy(
-            method, extra_manager, framework, family, 
-            export_formats=export_formats,
-            original_format=original_format
+            method=method,
+            extra_manager=extra_manager,
+            method_params=method_params,
+            export_formats=export_formats
         )
         
         if warnings:
@@ -370,7 +352,8 @@ def execute_compression():
         return jsonify(create_success_response({
             "job_id": result.get("job_id"),
             "result_dir": result_dir,
-            "artifacts": result.get("artifacts", []),
+            "operations": result.get("operations", []),
+            "outputs": result.get("outputs", []),
             "metrics": result.get("metrics", {})
         }))
         

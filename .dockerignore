@@ -1,0 +1,19 @@
+# 忽略大文件和构建产物
+artifacts/
+storage/
+logs/
+weights/
+test_results/
+scripts/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.dockerignore
+docker-compose.yml
+Dockerfile
+test_*.bat
+*.md
+*.zip

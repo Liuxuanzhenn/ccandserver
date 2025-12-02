@@ -13,7 +13,6 @@ _STRATEGY_MAP = {
     'apply_structured': ('strategies.prune.structured', 'apply_structured'),
     'apply_unstructured': ('strategies.prune.unstructured', 'apply_unstructured'),
     'select_sparsity': ('strategies.prune.structured', 'select_sparsity'),
-    'kd_minimal': ('strategies.distill.kd_cls', 'kd_minimal'),
 }
 
 _FAMILY_KEYWORDS = {
@@ -249,49 +248,28 @@ class ModelAdapter(ABC):
             self.family = self._detect_family_from_model()
 
         distill_func = _try_import_strategy('strategies.distill.strategy', 'decide_and_apply_distill')
-        if distill_func:
-            try:
-                distill_cfg = {
-                    "temperature": self._get_cfg(cfg, "temperature", 4.0),
-                    "alpha": self._get_cfg(cfg, "alpha", 0.5),
-                    "epochs": self._get_cfg(cfg, "epochs", 10),
-                    "batch_size": self._get_cfg(cfg, "batch_size", 32),
-                    "lr": self._get_cfg(cfg, "lr", 1e-3),
-                    "train_data_dir": self._get_cfg(cfg, "train_data_dir"),
-                    "val_data_dir": self._get_cfg(cfg, "val_data_dir"),
-                    "input_shape": self._get_cfg(cfg, "input_shape", (2, 3, 224, 224)),
-                    "artifacts_dir": self.artifacts_dir
-                }
-                result = distill_func(student=self.model, teacher=teacher_model, cfg=distill_cfg, family=self.family)
-                save_info = self._save_model("distilled")
-                if save_info:
-                    result = result or {}
-                    result.update(save_info)
-                return result
-            except Exception:
-                pass
-
-        kd_func = _get_strategy('kd_minimal')
-        if kd_func:
-            try:
-                result = kd_func(
-                    student=self.model,
-                    teacher=teacher_model,
-                    temperature=self._get_cfg(cfg, "temperature", 4.0),
-                    alpha=self._get_cfg(cfg, "alpha", 0.5),
-                    steps=self._get_cfg(cfg, "epochs", 1) * 100,
-                    input_shape=self._get_cfg(cfg, "input_shape", (2, 3, 224, 224)),
-                    artifacts_dir=self.artifacts_dir
-                )
-                save_info = self._save_model("distilled")
-                if save_info:
-                    result = result or {}
-                    result.update(save_info)
-                return result
-            except Exception:
-                pass
-
-        return {"status": "skipped", "reason": "distillation not available"}
+        if not distill_func:
+            return {"status": "skipped", "reason": "distillation not available"}
+        
+        try:
+            distill_cfg = {
+                "temperature": self._get_cfg(cfg, "temperature", 4.0),
+                "alpha": self._get_cfg(cfg, "alpha", 0.5),
+                "epochs": self._get_cfg(cfg, "epochs", 10),
+                "batch_size": self._get_cfg(cfg, "batch_size", 32),
+                "lr": self._get_cfg(cfg, "lr", 1e-3),
+                "train_data_dir": self._get_cfg(cfg, "train_data_dir"),
+                "val_data_dir": self._get_cfg(cfg, "val_data_dir"),
+                "artifacts_dir": self.artifacts_dir
+            }
+            result = distill_func(student=self.model, teacher=teacher_model, cfg=distill_cfg, family=self.family)
+            save_info = self._save_model("distilled")
+            if save_info:
+                result = result or {}
+                result.update(save_info)
+            return result
+        except Exception as e:
+            return {"status": "error", "reason": str(e)}
 
     @abstractmethod
     def export(self, formats: Iterable[str], targets: Iterable[str]) -> List[str]:

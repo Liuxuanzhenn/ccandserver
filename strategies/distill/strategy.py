@@ -1,90 +1,65 @@
-"""蒸馏策略选择器 - 根据模型类型自动选择最优蒸馏方法"""
-
+"""蒸馏策略选择器 - 根据模型类型自动选择最优蒸馏配置"""
 from typing import Any, Dict, Optional
 
 try:
-    from .kd_cls import kd_minimal
+    from .core import run_distillation
 except ImportError:
-    from strategies.distill.kd_cls import kd_minimal
+    from strategies.distill.core import run_distillation
 
 
 def decide_and_apply_distill(
-    student: Any,
-    teacher: Any,
-    cfg: Dict[str, Any],
-    family: Optional[str] = None
+    student: Any, teacher: Any, cfg: Dict[str, Any], family: Optional[str] = None
 ) -> Dict[str, Any]:
-    """蒸馏策略选择和应用（支持模型感知）
-    
-    Args:
-        student: 学生模型
-        teacher: 教师模型
-        cfg: 蒸馏配置字典
-        family: 模型家族（yolo/resnet/lstm/rnn/gcn/vae等）
-    
-    Returns:
-        蒸馏结果字典
-    """
+    """蒸馏策略选择和应用"""
     if not isinstance(cfg, dict):
         return {"status": "skipped", "reason": "invalid config"}
     
-    family_lower = str(family or "generic").lower()
+    family = str(family or "generic").lower()
+    alpha = cfg.get("alpha", 0.7)
     
-    # 序列模型和生成模型暂不支持标准蒸馏
-    if family_lower in ["lstm", "rnn", "vae", "gcn"]:
-        return {
-            "status": "skipped",
-            "reason": f"{family_lower}模型蒸馏需要特殊实现（MSE损失或重建损失）"
-        }
+    # 基础配置
+    config = {
+        "epochs": cfg.get("epochs", 10),
+        "batch_size": cfg.get("batch_size", 32),
+        "lr": cfg.get("lr", 1e-3),
+        "temperature": cfg.get("temperature", 4.0),
+        "train_data_dir": cfg.get("train_data_dir"),
+        "val_data_dir": cfg.get("val_data_dir"),
+        "artifacts_dir": cfg.get("artifacts_dir"),
+        "use_logits": False,
+        "use_feature": False,
+        "use_mse": False,
+        "alpha_logits": 0.0,
+        "alpha_feature": 0.0,
+        "alpha_mse": 0.0,
+        "alpha_hard": 1.0 - alpha
+    }
     
-    # 分类模型：使用KL散度蒸馏
-    if family_lower in ["resnet", "vgg", "vit", "cnn", "van", "inceptionv4"]:
-        return kd_minimal(
-            student=student,
-            teacher=teacher,
-            temperature=cfg.get("temperature", 4.0),
-            alpha=cfg.get("alpha", 0.5),
-            steps=cfg.get("epochs", 1) * 100,
-            input_shape=cfg.get("input_shape", (2, 3, 224, 224)),
-            artifacts_dir=cfg.get("artifacts_dir"),
-            train_data_dir=cfg.get("train_data_dir"),
-            val_data_dir=cfg.get("val_data_dir"),
-            epochs=cfg.get("epochs", 10),
-            batch_size=cfg.get("batch_size", 32),
-            lr=cfg.get("lr", 1e-3),
-        )
+    # 策略分发
+    if family in ["resnet", "vgg", "vit", "cnn", "van", "inceptionv4", "yolo"]:
+        # 分类/检测模型: Logits + Feature 混合蒸馏
+        config["use_logits"] = True
+        config["use_feature"] = True
+        config["alpha_logits"] = alpha * 0.6
+        config["alpha_feature"] = alpha * 0.4
+        if family == "yolo":
+            config["batch_size"] = 16
     
-    # 检测模型（YOLO）：使用标准蒸馏（未来可扩展检测特定损失）
-    elif family_lower == "yolo":
-        return kd_minimal(
-            student=student,
-            teacher=teacher,
-            temperature=cfg.get("temperature", 4.0),
-            alpha=cfg.get("alpha", 0.7),  # 检测任务通常alpha更高
-            steps=cfg.get("epochs", 1) * 100,
-            input_shape=cfg.get("input_shape", (2, 3, 640, 640)),  # YOLO默认输入
-            artifacts_dir=cfg.get("artifacts_dir"),
-            train_data_dir=cfg.get("train_data_dir"),
-            val_data_dir=cfg.get("val_data_dir"),
-            epochs=cfg.get("epochs", 10),
-            batch_size=cfg.get("batch_size", 16),  # 检测任务batch通常更小
-            lr=cfg.get("lr", 1e-3),
-        )
+    elif family == "vae":
+        # 生成模型: MSE蒸馏
+        config["use_mse"] = True
+        config["alpha_mse"] = alpha
+        config["alpha_hard"] = 0.0
     
-    # 通用模型：使用标准蒸馏
+    elif family in ["lstm", "rnn", "gcn", "transformer"]:
+        # 序列/图模型: Feature蒸馏
+        config["use_feature"] = True
+        config["alpha_feature"] = alpha
+        config["alpha_hard"] = 0.0
+    
     else:
-        return kd_minimal(
-            student=student,
-            teacher=teacher,
-            temperature=cfg.get("temperature", 4.0),
-            alpha=cfg.get("alpha", 0.5),
-            steps=cfg.get("epochs", 1) * 100,
-            input_shape=cfg.get("input_shape", (2, 3, 224, 224)),
-            artifacts_dir=cfg.get("artifacts_dir"),
-            train_data_dir=cfg.get("train_data_dir"),
-            val_data_dir=cfg.get("val_data_dir"),
-            epochs=cfg.get("epochs", 10),
-            batch_size=cfg.get("batch_size", 32),
-            lr=cfg.get("lr", 1e-3),
-        )
-
+        # 通用: Logits蒸馏
+        config["use_logits"] = True
+        config["alpha_logits"] = alpha
+    
+    return run_distillation(student, teacher, config)

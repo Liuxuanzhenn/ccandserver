@@ -40,11 +40,16 @@
 │   ├── tensorflow_generic.py          # TensorFlow适配器
 │   ├── paddle_generic.py              # PaddlePaddle适配器
 │   ├── onnx_generic.py                # ONNX适配器
-│   └── classic.py                     # 传统ML模型适配器（K-Means/DBSCAN/谱聚类）
+│   ├── classic.py                     # 传统ML模型适配器（通用）
+│   ├── classic_kmeans.py             # K-Means聚类适配器
+│   ├── classic_dbscan.py              # DBSCAN聚类适配器
+│   └── classic_spectral_clustering.py # 谱聚类适配器
 │
 ├── api/                               # API接口模块
 │   ├── compression.py                 # 压缩API接口（/detect-capabilities, /execute）
 │   ├── upload.py                      # 文件上传API接口（/upload-extra-files）
+│   ├── convert.py                     # 格式转换API接口（/convert-format）
+│   ├── compile.py                     # 硬件编译API接口（/compile, /list-hardware）
 │   ├── method_mapper.py               # 方法映射器（API method → strategy）
 │   └── schemas.py                     # Pydantic数据验证Schema
 │
@@ -116,26 +121,60 @@
 │   ├── jobs_db.json                   # 任务数据库
 │   └── logs/                          # 日志目录
 │
-├── artifacts/                         # 测试产物目录
-│   └── new_test_upload/               # 测试上传的模型和结果
+├── artifacts/                         # 测试产物目录（运行时生成）
+│   └── [模型ID]/                      # 按模型ID组织的目录
+│       └── v_[版本号]/                 # 按版本组织的目录
+│           ├── raw/                   # 原始模型文件
+│           ├── optimized/            # 压缩后的模型文件
+│           └── extra/                 # 额外文件（校准数据、训练数据等）
 │
+├── scripts/                           # 工具脚本
+│   ├── check_file_sizes.py            # 文件大小检查脚本
+│   └── dev_run.ps1                    # 开发环境运行脚本
+│
+├── docs/                              # 文档目录
+│
+├── logs/                              # 日志目录（运行时生成）
+│   └── engine.log                     # 引擎执行日志
+│
+├── test_results/                      # 测试结果目录
+│
+├── weights/                           # 预训练权重文件目录
+│   └── pytorch/                       # PyTorch权重文件
+│       ├── yolo/                      # YOLO模型权重
+│       ├── resnet/                    # ResNet模型权重
+│       ├── vgg/                       # VGG模型权重
+│       ├── vit/                       # ViT模型权重
+│       ├── cnn/                       # CNN模型权重
+│       ├── transformer/               # Transformer模型权重
+│       ├── lstm/                      # LSTM模型权重
+│       └── vae/                       # VAE模型权重
+│
+├── test_resnet50_single.bat          # ResNet50单模型测试脚本
+├── test_inceptionv4.bat               # InceptionV4测试脚本
+├── test_vgg16.bat                     # VGG16测试脚本
+├── test_lstm.bat                      # LSTM测试脚本
+├── compression_demo.html             # 前端演示页面
+├── docker-compose.yml                 # Docker Compose配置
+├── Dockerfile                         # Docker镜像构建文件
 ├── requirements.txt                   # Python依赖
-├── README.md                          # 项目文档（本文件）
-└── CODE_QUALITY_REPORT.md             # 代码质量报告
+└── README.md                          # 项目文档（本文件）
 ```
 
 ### 1.2 核心模块说明
 
 | 模块 | 作用 | 关键文件 |
 |------|------|---------|
-| **adapters** | 为不同框架和模型架构提供统一接口 | `base.py`, `registry.py`, `pytorch_*.py` |
-| **api** | 提供RESTful API接口 | `compression.py`, `upload.py` |
-| **core** | 核心业务逻辑，执行优化和编译 | `engine.py` |
-| **services** | 业务服务（模型检测、文件管理、预估推荐） | `model.py`, `files.py`, `estimator.py` |
+| **adapters** | 为不同框架和模型架构提供统一接口 | `base.py`, `registry.py`, `pytorch_*.py`, `classic_*.py` |
+| **api** | 提供RESTful API接口 | `compression.py`, `upload.py`, `convert.py`, `compile.py` |
+| **core** | 核心业务逻辑，执行优化和编译 | `engine.py`, `enums.py` |
+| **services** | 业务服务（模型检测、文件管理、预估推荐） | `model.py`, `files.py`, `estimator.py`, `recommender.py` |
 | **strategies** | 压缩策略实现（量化/剪枝/蒸馏） | `quant/`, `prune/`, `distill/` |
-| **compilers** | 硬件编译器（TensorRT/Ascend/Cambricon） | `tensorrt.py`, `ascend.py`, `cambricon.py` |
+| **compilers** | 硬件编译器（TensorRT/Ascend/Cambricon/M9） | `tensorrt.py`, `ascend.py`, `cambricon.py`, `m9.py`, `registry.py` |
 | **compression** | 模型能力配置管理 | `capabilities_v2.py` |
 | **configs** | 配置文件 | `model_capabilities.json` |
+| **evaluators** | 模型评估器（大小/延迟/精度） | `size.py`, `latency.py`, `accuracy_stub.py` |
+| **utils** | 工具模块（路径/错误/安全） | `path.py`, `error.py`, `security.py`, `file.py` |
 
 ---
 

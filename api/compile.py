@@ -1,20 +1,22 @@
-"""硬件编译API接口
-
-提供模型硬件编译功能，支持TensorRT、Ascend、Cambricon等硬件平台
-"""
+"""硬件编译API接口"""
 import logging
 import os
-from typing import Dict, Any, Optional
+import time
 from flask import Blueprint, request, jsonify
 
 from utils.path import PathManager
 from utils.error import create_error_response, create_success_response, APIError, ErrorCode
-from compilers.registry import get_compiler, list_available_compilers, list_supported_hardware
+from compilers.registry import list_available_compilers, list_supported_hardware
 from core.engine import execute_compile
 
 logger = logging.getLogger(__name__)
 
 compile_api_bp = Blueprint('compile_api', __name__)
+
+_OUTPUT_FORMAT_MAP = {
+    "tensorrt": "engine", "ascend": "om",
+    "cambricon": "cambricon", "mlu": "cambricon", "m9": "m9"
+}
 
 
 @compile_api_bp.post("/compile")
@@ -183,28 +185,30 @@ def compile_model():
                 result["error"]
             )), 500
         
-        # 确定输出格式
-        output_format_map = {
-            "tensorrt": "engine",
-            "ascend": "om",
-            "cambricon": "cambricon",
-            "mlu": "cambricon",
-            "m9": "m9"
-        }
-        output_format = output_format_map.get(target_lower, "unknown")
+        # 构建统一格式响应
+        job_id = result.get("job_id", f"compile_{int(time.time())}")
+        input_ext = os.path.splitext(model_path)[1][1:]
+        output_format = _OUTPUT_FORMAT_MAP.get(target_lower, "unknown")
         
-        # 生成job_id
-        import time
-        job_id = f"compile_{int(time.time())}"
+        # 计算文件大小
+        size_before = size_after = None
+        try:
+            if os.path.exists(model_path):
+                size_before = round(os.path.getsize(model_path) / (1024 * 1024), 4)
+            outputs = result.get("outputs", [])
+            if outputs and outputs[0].get("path"):
+                out_path = os.path.join(result_dir, target_lower, outputs[0]["path"])
+                if os.path.exists(out_path):
+                    size_after = round(os.path.getsize(out_path) / (1024 * 1024), 4)
+        except Exception:
+            pass
         
         return jsonify(create_success_response({
             "job_id": job_id,
             "result_dir": result_dir,
-            "compiled_files": result.get("compiled", []),
-            "target": target_lower,
-            "input_format": os.path.splitext(model_path)[1][1:],  # 从扩展名推断
-            "output_format": output_format,
-            "message": result.get("message", "Compilation completed successfully")
+            "operations": [{"operation": "compile", "from": input_ext, "to": target_lower, "status": "success"}],
+            "outputs": result.get("outputs", []),
+            "metrics": {"size_before_mb": size_before, "size_after_mb": size_after}
         }))
         
     except APIError as e:
